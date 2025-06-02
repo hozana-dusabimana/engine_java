@@ -1,37 +1,237 @@
 // import drawRoad from './road.js';
 
+let isAccelerating = false;
+let isBraking = false;
+let isMovingLeft = false;
+let isMovingRight = false;
+
+let countdown = 3;
+let countdownInterval = null;
+
+let advertisementBanners = [];
+const advertisementMessages = [
+    "Future Skills Ahead!", "Drive Safely!", "Enjoy the View!",
+    "RTB Competition!", "Visit Rwanda!"
+];
+
+// Advertisement banner dimensions (accessible by both update and draw functions)
+const advertisementBannerHeight = 80;
+const advertisementBannerWidth = 320 * 2.3; // Make banner wider than road width
+
+function handleInput(event) {
+    const rect = canvas.getBoundingClientRect();
+    const x = event.clientX !== undefined ? event.clientX - rect.left : event.touches[0].clientX - rect.left;
+    const y = event.clientY !== undefined ? event.clientY - rect.top + 200 : event.touches[0].clientY - rect.top + 200;
+
+    if (gameState === 'menu') {
+        // Start countdown on any click/touch in the menu state
+        if (countdownInterval === null) {
+            gameState = 'countdown';
+            countdown = 3;
+            countdownInterval = setInterval(() => {
+                countdown--;
+                if (countdown < 0) {
+                    clearInterval(countdownInterval);
+                    countdownInterval = null;
+                    startGame(); // Transition to playing after countdown
+                }
+            }, 1000);
+        }
+        return; // Prevent other actions while in menu
+    }
+
+    if (gameState === 'gameover' || gameState === 'victory') {
+        // Transition to menu on any click/touch in gameover or victory state
+        gameState = 'menu';
+        resetGame();
+        return; // Prevent other actions after transitioning
+    }
+
+    // Only process driving input if in playing state
+    if (gameState === 'playing') {
+        isMovingLeft = x < canvas.width / 2;
+        isMovingRight = x >= canvas.width / 2;
+        isAccelerating = y < canvas.height / 2;
+        isBraking = y >= canvas.height / 2;
+    }
+}
+
+function resetInput() {
+    isAccelerating = false;
+    isBraking = false;
+    isMovingLeft = false;
+    isMovingRight = false;
+}
+
+function startGame() {
+    gameState = 'playing';
+    resetGame(); // Reset game state when starting
+}
+
+function resetGame() {
+    player.x = canvas.width / 2;
+    player.y = canvas.height - 100;
+    player.speed = 0;
+    player.lane = 1;
+    level = 1;
+    distance = 0;
+    score = 0;
+    gameTime = 0;
+    hillOffset = 0;
+    curveOffset = 0; // Reset curve offset as well
+    curveDirection = 0;
+    hillDirection = 0;
+    aiCars = [];
+    obstacles = [];
+    particles = [];
+    advertisementBanners = []; // Clear advertisement banners
+    lastBannerDistance = -1; // Reset lastBannerDistance to ensure first banner spawns correctly
+    // Signposts are re-initialized in initGame, so no need to clear here
+}
+
+function drawCountdown() {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = '#FFF';
+    ctx.font = 'bold 100px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Draw animating circle
+    const centerX = canvas.width / 2;
+    const centerY = canvas.height / 2;
+    const radius = 80; // Radius of the circle
+    const lineWidth = 10; // Thickness of the circle line
+    const animationSpeed = 0.1; // Speed of the animation
+
+    ctx.save(); // Save context state before animation
+
+    // Animate scale based on countdown value
+    const scale = 1 + (3 - countdown) * 0.1; // Scale up as countdown decreases
+    ctx.translate(centerX, centerY);
+    ctx.scale(scale, scale);
+    ctx.translate(-centerX, -centerY);
+
+    // Draw the circle
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.8)'; // White with some transparency
+    ctx.lineWidth = lineWidth;
+    ctx.beginPath();
+    // Animate the circle arc (optional, but adds more animation)
+    const endAngle = (countdown % 1) * Math.PI * 2; // Animate based on fractional part of countdown
+    ctx.arc(centerX, centerY, radius, 0, Math.PI * 2); // Full circle for now
+    ctx.stroke();
+
+    ctx.restore(); // Restore context state
+
+    if (countdown > 0) {
+        ctx.fillText(countdown, canvas.width / 2, canvas.height / 2);
+    } else {
+        ctx.fillText('GO!', canvas.width / 2, canvas.height / 2);
+    }
+}
+
+function drawAdvertisementBanners() {
+    const roadWidth = 320;
+    const baseX = canvas.width / 2;
+    const segments = 100;
+    const segmentHeight = canvas.height / segments;
+    // const poleTopWidth = 10; // Removed pole variable
+    // const poleBottomWidth = 80; // Removed pole variable
+
+    advertisementBanners.forEach(banner => {
+        // Calculate perspective scaling factor
+        const scaleFactor = (banner.y + 100) / (canvas.height + 100);
+        const effectiveScaleFactor = Math.max(0.4, scaleFactor);
+
+        // Calculate road center and edges at banner's y position
+        const i = (canvas.height - banner.y) / segmentHeight;
+        const roadXOffsetAtBannerY = curveOffset * 0.01 * i;
+        const roadCenterAtBannerY = baseX + roadXOffsetAtBannerY * effectiveScaleFactor;
+        const roadLeftAtBannerY = roadCenterAtBannerY - (roadWidth / 2) * effectiveScaleFactor;
+        const roadRightAtBannerY = roadCenterAtBannerY + (roadWidth / 2) * effectiveScaleFactor;
+
+        // Calculate banner perspective width using constant width
+        const bannerPerspectiveWidth = advertisementBannerWidth; // Constant width
+        const bannerPerspectiveHeight = advertisementBannerHeight; // Constant height
+
+        // Position banner centered on the road with perspective
+        const bannerPerspectiveX = roadCenterAtBannerY - bannerPerspectiveWidth / 2; // Centered on the road
+
+        const bannerBottomY = banner.y + bannerPerspectiveHeight;
+
+        // Removed pole drawing logic based on user image
+
+        // Draw banner rectangle
+        ctx.fillStyle = '#FFFF00';
+        ctx.fillRect(bannerPerspectiveX, banner.y, bannerPerspectiveWidth, bannerPerspectiveHeight);
+        ctx.strokeStyle = '#000';
+        ctx.lineWidth = 3 * effectiveScaleFactor;
+        ctx.strokeRect(bannerPerspectiveX, banner.y, bannerPerspectiveWidth, bannerPerspectiveHeight);
+
+        // Draw advertisement text
+        ctx.fillStyle = '#000';
+        ctx.font = `bold ${20 * effectiveScaleFactor}px Arial`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(banner.message, roadCenterAtBannerY, banner.y + bannerPerspectiveHeight / 2);
+
+        // Draw yellow pivots above the banner
+        ctx.fillStyle = '#FFFF00';
+        // Pivot size is now constant
+        const pivotWidth = 90; // Constant base width
+        const pivotHeight = 45; // Constant base height
+
+        // Left pivot above banner
+        const leftUpperPivotX = bannerPerspectiveX + bannerPerspectiveWidth * 0.25 - pivotWidth / 2; // Position relative to banner
+        const leftUpperPivotY = banner.y - pivotHeight;
+        ctx.fillRect(leftUpperPivotX, leftUpperPivotY, pivotWidth, pivotHeight);
+
+        // Right pivot above banner
+        const rightUpperPivotX = bannerPerspectiveX + bannerPerspectiveWidth * 0.75 - pivotWidth / 2; // Position relative to banner
+        const rightUpperPivotY = banner.y - pivotHeight;
+        ctx.fillRect(rightUpperPivotX, rightUpperPivotY, pivotWidth, pivotHeight);
+
+        // Removed road edge pivot drawing logic
+    });
+}
+
+let lastBannerDistance = -1; // To track when to spawn the next banner - initialized to -1
+
 function updateGame() {
     if (gameState !== 'playing') return;
 
     // Handle player input for moving to left
-    if (keys['ArrowLeft'] || keys['KeyA']) {
+    if (keys['ArrowLeft'] || keys['KeyA'] || isMovingLeft) {
         if (player.lane > 0) {
-            player.x = Math.max(50, player.x - 4); //can't go beyond left edge
-            if (player.x <= lanePositions[player.lane - 1] + 10) {
+            const targetX = lanePositions[player.lane - 1];
+            player.x = Math.max(lanePositions[0] + player.width / 2, player.x - 4);
+            if (player.x <= targetX + 10) {
                 player.lane--;
             }
         }
     }
 
     // Handle player input for moving to right
-    if (keys['ArrowRight'] || keys['KeyD']) {
+    if (keys['ArrowRight'] || keys['KeyD'] || isMovingRight) {
         if (player.lane < 2) {
-            player.x = Math.min(canvas.width - 50, player.x + 4); //can't go beyond right edge
-            if (player.x >= lanePositions[player.lane + 1] - 10) {
+            const targetX = lanePositions[player.lane + 1];
+            player.x = Math.min(lanePositions[2] - player.width / 2, player.x + 4);
+            if (player.x >= targetX - 10) {
                 player.lane++;
             }
         }
     }
 
     // Handle player input for moving up
-    if (keys['ArrowUp'] || keys['KeyW']) {
-        player.speed = Math.min(player.maxSpeed, player.speed + player.acceleration); //initial speed increase with acceleration
-        if (soundEnabled && Math.random() < 0.1) sounds.engine(); //prevent too repetitive sounds (enable 10% of chance to give sound) because of sound that would be genrated at every frame
+    if (keys['ArrowUp'] || keys['KeyW'] || isAccelerating) {
+        player.speed = Math.min(player.maxSpeed, player.speed + player.acceleration);
+        if (soundEnabled && Math.random() < 0.1) sounds.engine();
     }
 
     // Handle player input for braking and decelerating
-    if (keys['ArrowDown'] || keys['KeyS'] || keys['Space']) {
-        player.speed = Math.max(0, player.speed - player.acceleration * 1.5); //decelerate faster when braking
+    if (keys['ArrowDown'] || keys['KeyS'] || keys['Space'] || isBraking) {
+        player.speed = Math.max(0, player.speed - player.acceleration * 1.5);
         if (soundEnabled && Math.random() < 0.05) sounds.brake();
     }
 
@@ -65,6 +265,43 @@ function updateGame() {
         return;
     }
 
+    // Check to spawn new advertisement banner
+    if (Math.floor(distance / 500) > Math.floor(lastBannerDistance / 500)) {
+        const randomMessage = advertisementMessages[Math.floor(Math.random() * advertisementMessages.length)];
+
+        // Calculate horizon Y position
+        const segments = 100;
+        const segmentHeight = canvas.height / segments;
+        const roadTopY = canvas.height / 3; // Using user's value for road top
+        const horizonY = Math.max(0, roadTopY - 30);
+        const maxHorizonY = canvas.height / 3;
+        const horizonYPos = Math.min(maxHorizonY, horizonY);
+
+        // Calculate road center at horizon Y position
+        const roadWidth = 320;
+        const baseX = canvas.width / 2;
+        const i = (canvas.height - horizonYPos) / segmentHeight; // Approximate segment index for horizon
+        const roadXOffsetAtHorizon = curveOffset * 0.01 * i;
+        const roadCenterAtHorizon = baseX + roadXOffsetAtHorizon * Math.max(0.4, (horizonYPos + 100) / (canvas.height + 100)); // Use increased min scale factor
+
+        advertisementBanners.push({
+            message: randomMessage,
+            x: roadCenterAtHorizon, // Spawn centered on the road at the horizon
+            y: horizonYPos + 5, // Spawn just below the horizon
+            width: advertisementBannerWidth,
+            height: advertisementBannerHeight,
+        });
+        lastBannerDistance = distance; // Update the last banner distance
+    }
+
+    // Update and filter advertisement banners
+    advertisementBanners = advertisementBanners.filter(banner => {
+        banner.y += player.speed; // Move banner down based on player speed
+
+        // Remove banner if it goes off-screen
+        return banner.y < canvas.height + 50; // Keep banner until it's well off the bottom
+    });
+
     //obstacles and  AI cars spawning logic
     if (Math.random() < 0.02 + level * 0.01) {
         spawnAICar();
@@ -89,8 +326,10 @@ function updateGame() {
         if (Math.abs(player.x - car.x) < 25 && Math.abs(player.y - car.y) < 50) {
             sounds.collision();
             createParticles(player.x, player.y, '#FF4500', 15); //color hex from google color picker
-            gameState = 'gameover'; // Set game state to game over
-            saveHighScore();
+            if (!freeRideMode) {
+                gameState = 'gameover'; // Set game state to game over
+                saveHighScore();
+            }
         }
     });
 
@@ -99,8 +338,10 @@ function updateGame() {
         if (Math.abs(player.x - obs.x) < 20 && Math.abs(player.y - obs.y) < 30) {
             sounds.collision();
             createParticles(obs.x, obs.y, '#8B4513', 10);
-            player.speed *= 0.5;
-            score = Math.max(0, score - 50);
+            if (!freeRideMode) {
+                player.speed *= 0.5; // Reduce speed only if not in free ride mode
+                score = Math.max(0, score - 50); // Reduce score only if not in free ride mode
+            }
             obstacles.splice(index, 1);
         }
     });
@@ -121,7 +362,8 @@ function spawnAICar() {
     // Calculate the horizon position
     const segments = 100;
     const segmentHeight = canvas.height / segments;
-    const roadTopY = canvas.height - segments * segmentHeight;
+    // const roadTopY = canvas.height - segments * segmentHeight;
+    const roadTopY = canvas.height / 3;
     const horizonY = Math.max(0, roadTopY - 30);
     const maxHorizonY = canvas.height / 3;
     const horizonYPos = Math.min(maxHorizonY, horizonY);
@@ -267,6 +509,7 @@ function updateSignposts() { // Update signposts' positions and reset them when 
 
     signposts.forEach(sign => {
         sign.y += player.speed * 0.8; // Move signposts down the screen
+        sign.y = (sign.y < canvas.height / 3) ? canvas.height / 3 : sign.y;
         sign.animation += 0.02;
 
         if (sign.y > canvas.height + 100) { // Reset signpost position
@@ -660,32 +903,113 @@ function drawMiniMap() {
     const mapSize = 120;
     const mapX = canvas.width - mapSize - 20;
     const mapY = 50;
+    const roadWidth = 320;
+    const baseX = canvas.width / 2;
+    const roadSegments = 100;
+    const segmentHeight = canvas.height / roadSegments;
 
-
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+    // Draw map background
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
     ctx.fillRect(mapX, mapY, mapSize, mapSize);
     ctx.strokeStyle = '#FFF';
+    ctx.lineWidth = 2;
     ctx.strokeRect(mapX, mapY, mapSize, mapSize);
 
+    // Calculate road dimensions for mini-map
+    const mapRoadWidth = mapSize - 40;
+    const mapRoadHeight = mapSize - 20;
+    const mapRoadX = mapX + 20;
+    const mapRoadY = mapY + 10;
 
+    // Draw road base
     ctx.fillStyle = '#555';
-    ctx.fillRect(mapX + 20, mapY, mapSize - 40, mapSize);
+    ctx.beginPath();
+    ctx.moveTo(mapRoadX, mapRoadY + mapRoadHeight);
 
+    // Draw road based on actual curve and hill
+    const curveFactor = curveOffset * 0.5;
+    const hillFactor = hillOffset * 0.3;
+    const mapSegments = 20;
 
+    // Draw road path
+    for (let i = 0; i <= mapSegments; i++) {
+        const t = i / mapSegments;
+        const x = mapRoadX + (mapRoadWidth * t);
+        const y = mapRoadY + mapRoadHeight * (1 - t) +
+            Math.sin(t * Math.PI * 2 + curveFactor) * 10 +
+            Math.sin(t * Math.PI + hillFactor) * 5;
+        ctx.lineTo(x, y);
+    }
+    ctx.lineTo(mapRoadX + mapRoadWidth, mapRoadY + mapRoadHeight);
+    ctx.closePath();
+    ctx.fill();
+
+    // Draw road edges
+    ctx.strokeStyle = '#FFF';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(mapRoadX, mapRoadY + mapRoadHeight);
+
+    for (let i = 0; i <= mapSegments; i++) {
+        const t = i / mapSegments;
+        const x = mapRoadX + (mapRoadWidth * t);
+        const y = mapRoadY + mapRoadHeight * (1 - t) +
+            Math.sin(t * Math.PI * 2 + curveFactor) * 10 +
+            Math.sin(t * Math.PI + hillFactor) * 5;
+        ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+
+    // Draw player position
+    const playerMapX = mapRoadX + (player.x - (baseX - roadWidth / 2)) / roadWidth * mapRoadWidth;
+    const playerMapY = mapRoadY + mapRoadHeight * (1 - (player.y / canvas.height));
     ctx.fillStyle = '#0066CC';
-    const playerMapX = mapX + 20 + ((player.x - 50) / (canvas.width - 100)) * (mapSize - 40);
-    const playerMapY = mapY + mapSize - 20;
-    ctx.fillRect(playerMapX - 2, playerMapY - 4, 4, 8);
+    ctx.beginPath();
+    ctx.arc(playerMapX, playerMapY, 3, 0, Math.PI * 2);
+    ctx.fill();
 
-
+    // Draw AI cars
     ctx.fillStyle = '#FF0000';
     aiCars.forEach(car => {
-        const carMapX = mapX + 20 + ((car.x - 50) / (canvas.width - 100)) * (mapSize - 40);
-        const carMapY = mapY + ((canvas.height - car.y) / canvas.height) * mapSize;
-        if (carMapY >= mapY && carMapY <= mapY + mapSize) {
-            ctx.fillRect(carMapX - 1, carMapY - 2, 2, 4);
+        if (car.y > 0 && car.y < canvas.height) {
+            const carMapX = mapRoadX + (car.x - (baseX - roadWidth / 2)) / roadWidth * mapRoadWidth;
+            const carMapY = mapRoadY + mapRoadHeight * (1 - (car.y / canvas.height));
+            ctx.beginPath();
+            ctx.arc(carMapX, carMapY, 2, 0, Math.PI * 2);
+            ctx.fill();
         }
     });
+
+    // Draw obstacles
+    ctx.fillStyle = '#FFA500';
+    obstacles.forEach(obs => {
+        if (obs.y > 0 && obs.y < canvas.height) {
+            const obsMapX = mapRoadX + (obs.x - (baseX - roadWidth / 2)) / roadWidth * mapRoadWidth;
+            const obsMapY = mapRoadY + mapRoadHeight * (1 - (obs.y / canvas.height));
+            ctx.beginPath();
+            ctx.arc(obsMapX, obsMapY, 1.5, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    });
+
+    // Draw distance markers
+    ctx.fillStyle = '#FFF';
+    ctx.font = '8px Arial';
+    ctx.textAlign = 'center';
+    for (let i = 0; i <= 3; i++) {
+        const t = i / 3;
+        const x = mapRoadX + (mapRoadWidth * t);
+        const y = mapRoadY + mapRoadHeight * (1 - t) +
+            Math.sin(t * Math.PI * 2 + curveFactor) * 10 +
+            Math.sin(t * Math.PI + hillFactor) * 5;
+        ctx.fillText(`${i * 500}m`, x, y - 5);
+    }
+
+    // Draw current distance
+    ctx.fillStyle = '#00FF00';
+    ctx.font = 'bold 10px Arial';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${Math.round(distance)}m`, mapX + 5, mapY + 15);
 }
 
 function drawMenuScreen() {
@@ -780,6 +1104,52 @@ function drawMenuScreen() {
     ctx.font = 'italic 14px Arial';
     ctx.textAlign = 'center';
     ctx.fillText('🇷🇼 Land of a Thousand Hills - Drive Safe! 🇷🇼', canvas.width / 2, canvas.height - 30);
+
+    // Draw START banner
+    const roadWidth = 320;
+    const baseX = canvas.width / 2;
+    const segments = 100;
+    const segmentHeight = canvas.height / segments;
+    const roadTopY = canvas.height / 3; // Using user's value for road top
+    // const horizonY = Math.max(0, roadTopY - 30); // Not needed for banner position
+    // const maxHorizonY = canvas.height / 3; // Not needed for banner position
+    // const horizonYPos = Math.min(maxHorizonY, horizonY); // Not needed for banner position
+
+    const bannerHeight = 80; // Revert banner height for better visibility, can adjust later - keeping user's last change
+    const bannerY = canvas.height / 1.5; // Position banner centered on horizonYPos - keeping user's last change
+    const bannerWidth = roadWidth * 1.1; // Make banner significantly wider than the road - keeping user's last change
+    const bannerX = baseX - bannerWidth / 2; // Center the banner
+    const bannerBottomY = bannerY + bannerHeight; // Calculate banner bottom Y
+
+    // Calculate road edges at banner's y position for pole connection
+    const i = (canvas.height - bannerBottomY) / segmentHeight; // Approximate segment index for banner bottom
+    const roadXOffsetAtBannerBottom = curveOffset * 0.01 * i;
+    const roadLeftAtBannerBottom = baseX - roadWidth / 2 + roadXOffsetAtBannerBottom; // Road left edge at banner bottom Y
+    const roadRightAtBannerBottom = baseX + roadWidth / 2 + roadXOffsetAtBannerBottom; // Road right edge at banner bottom Y
+
+    // Draw banner supports (poles) with perspective - Reverting to simpler poles
+    const poleWidth = 20; // Base width of the simpler poles
+    ctx.fillStyle = '#8B4513'; // Brown color for poles
+
+    // Left pole
+    ctx.fillRect(roadLeftAtBannerBottom - poleWidth / 2, bannerBottomY, poleWidth, canvas.height - bannerBottomY); // Draw rectangle from banner bottom to canvas bottom
+
+    // Right pole
+    ctx.fillRect(roadRightAtBannerBottom - poleWidth / 2, bannerBottomY, poleWidth, canvas.height - bannerBottomY); // Draw rectangle from banner bottom to canvas bottom
+
+    // Draw banner rectangle
+    ctx.fillStyle = '#FFF';
+    ctx.fillRect(bannerX, bannerY, bannerWidth, bannerHeight);
+    ctx.strokeStyle = '#000';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(bannerX, bannerY, bannerWidth, bannerHeight);
+
+    // Draw START text
+    ctx.fillStyle = '#FF0000';
+    ctx.font = 'bold 60px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('START', baseX, bannerY + bannerHeight / 2);
 }
 
 function drawPauseScreen() {
@@ -926,6 +1296,7 @@ function gameLoop() {
             drawPlayer();
             drawParticles();
             drawHUD();
+            drawAdvertisementBanners(); // Draw advertisement banners
             break;
 
         case 'paused':
@@ -948,6 +1319,16 @@ function gameLoop() {
             drawVictoryScreen();
             drawParticles();
             break;
+
+        case 'countdown':
+            drawEnvironment();
+            drawRoad(ctx, canvas);
+            drawSignposts();
+            drawObstacles();
+            drawAICars();
+            drawPlayer();
+            drawCountdown();
+            break;
     }
 
     requestAnimationFrame(gameLoop);
@@ -957,13 +1338,34 @@ function gameLoop() {
 function initGame() {
     initSignposts();
 
+    // Add mouse and touch event listeners
+    canvas.addEventListener('mousedown', handleInput);
+    canvas.addEventListener('mouseup', resetInput);
+    canvas.addEventListener('mousemove', (event) => {
+        if (event.buttons === 1) { // Check if left mouse button is pressed
+            handleInput(event);
+        }
+    });
+
+    canvas.addEventListener('touchstart', (event) => {
+        event.preventDefault(); // Prevent scrolling on touch
+        handleInput(event);
+    });
+    canvas.addEventListener('touchend', resetInput);
+    canvas.addEventListener('touchmove', (event) => {
+        event.preventDefault(); // Prevent scrolling on touch
+        handleInput(event);
+    });
 
     for (let i = 0; i < 5; i++) {
         setTimeout(() => spawnAICar(), i * 1000);
     }
 
-
     gameLoop();
+}
+function readTextAloud(text) {
+    const utterance = new SpeechSynthesisUtterance(text);
+    speechSynthesis.speak(utterance);
 }
 
 
