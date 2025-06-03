@@ -4,6 +4,10 @@ let curveDirection = 0;
 hillOffset = 0;
 let hillDirection = 0;
 
+// Add persistent banner array
+let activeBanners = [];
+lastBannerDistance = 0; // Track when the last banner was created
+
 /**
  * Updates and draws the procedural road layout.
  * Curves and hills appear after 200m distance.
@@ -26,9 +30,31 @@ function drawRoad(ctx, canvas, speed = 5) {
 
     const baseX = canvas.width / 2;
 
+    // Advertisement banner properties
+    const bannerHeight = 70; // Taller to match image proportion
+    const bannerSpacing = 300; // Space between banners in meters (increased to 300m)
+    const bannerColors = [
+        '#FFFFFF' // White background
+    ];
+    const bannerTexts = [
+        'START',
+        'FINISH',
+        'CHECKPOINT',
+        'GO!',
+        'RACE!'
+    ];
+    const bannerTextColor = '#FF0000'; // Red text color
+    const bannerBorderColor = '#000000'; // Black border color
+    const bannerBorderWidth = 4; // Thicker border
+    const postWidth = 15; // Width of support posts
+    const postColor = '#A0522D'; // Sienna/brown color for posts
+
     // Calculate dynamic horizon position based on roadTopY
     const roadTopY = canvas.height - segments * segmentHeight;
     const horizonY = Math.max(0, roadTopY - 30); // 30px above the top of the road
+
+    // Calculate perspective scaling factor for road width
+    const perspectiveFactor = 0.8; // Controls how much the road narrows at the top
 
     // Calculate horizon perspective based on road movement
     const horizonXOffset = curveOffset * 0.01 * segments;
@@ -95,25 +121,56 @@ function drawRoad(ctx, canvas, speed = 5) {
     // Save the current context state
     ctx.save();
 
+    // Check if we should spawn a new banner based on distance
+    if (Math.floor(carDistance / bannerSpacing) > Math.floor(lastBannerDistance / bannerSpacing)) {
+        // Only spawn a new banner if we don't have any active banners
+        if (activeBanners.length === 0) {
+            // Calculate initial banner position at the horizon
+            const initialBannerWidth = roadWidth * 0.3; // Start smaller at horizon
+            const bannerX = baseX - initialBannerWidth / 2;
+            const bannerY = horizonYPos - bannerHeight - 50;
+
+            const bannerText = bannerTexts[Math.floor(Math.random() * bannerTexts.length)];
+            const bannerColor = bannerColors[0];
+
+            activeBanners.push({
+                x: bannerX,
+                y: bannerY,
+                initialWidth: initialBannerWidth,
+                width: initialBannerWidth,
+                height: bannerHeight,
+                text: bannerText,
+                color: bannerColor,
+                initialX: bannerX
+            });
+
+            lastBannerDistance = carDistance;
+        }
+    }
+
     // Draw road segments from bottom up (endless effect, always visible)
     for (let i = 0; i < segments; i++) {
         const y1 = canvas.height - i * segmentHeight;
         const y2 = canvas.height - (i + 1) * segmentHeight;
+
+        // Calculate perspective scaling for this segment
+        const perspectiveScale = 1 - (i / segments) * perspectiveFactor;
+        const segmentWidth = roadWidth * perspectiveScale;
 
         // Calculate offsets for this segment (not cumulative)
         let xOffset = curveOffset * 0.01 * i;
         let yOffset = hillOffset * 0.01 * i;
 
         // Clamp xOffset so road never goes beyond half its width from center
-        const maxOffset = (canvas.width - roadWidth) / 2;
+        const maxOffset = (canvas.width - segmentWidth) / 2;
         xOffset = Math.max(-maxOffset, Math.min(maxOffset, xOffset));
 
         // Clamp yOffset so road never goes higher than canvas.height/3
         const maxYOffset = canvas.height / 3;
         yOffset = Math.max(-maxYOffset, Math.min(maxYOffset, yOffset));
 
-        const left = baseX - roadWidth / 2 + xOffset;
-        const right = baseX + roadWidth / 2 + xOffset;
+        const left = baseX - segmentWidth / 2 + xOffset;
+        const right = baseX + segmentWidth / 2 + xOffset;
 
         // Road base
         ctx.fillStyle = '#555';
@@ -159,8 +216,88 @@ function drawRoad(ctx, canvas, speed = 5) {
         ctx.stroke();
     }
 
-    // Restore the context to remove clipping
+    // Restore the context to remove clipping (if any was applied in the loop)
     ctx.restore();
+
+    // Update and draw active banners
+    activeBanners = activeBanners.filter(banner => {
+        // Update banner position based on speed
+        banner.y += speed;
+
+        // Calculate road's horizontal offset and width at banner's y position
+        const i = (canvas.height - banner.y) / segmentHeight;
+        const roadXOffset = curveOffset * 0.01 * i;
+
+        // Calculate perspective scaling for this y position
+        // Invert the perspective scale so it grows as it gets closer
+        const perspectiveScale = (banner.y / canvas.height);
+
+        // Update banner's width based on road width at current position
+        const currentRoadWidth = roadWidth * perspectiveScale;
+        banner.width = currentRoadWidth * 1.2; // Keep banner 20% wider than road
+
+        // Update banner's x position to follow road curve and maintain center alignment
+        banner.x = baseX - banner.width / 2 + roadXOffset;
+
+        // Only keep and draw banners that are still visible
+        if (banner.y < canvas.height + banner.height) {
+            // Save the current context state
+            ctx.save();
+
+            // Set global composite operation to ensure banner is drawn on top
+            ctx.globalCompositeOperation = 'source-over';
+
+            // Draw banner background with slight transparency
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.95)';
+            ctx.fillRect(banner.x, banner.y, banner.width, banner.height);
+
+            // Draw banner border
+            ctx.strokeStyle = bannerBorderColor;
+            ctx.lineWidth = bannerBorderWidth;
+            ctx.strokeRect(banner.x, banner.y, banner.width, banner.height);
+
+            // Draw vertical support posts
+            const postHeight = banner.height + 80;
+            const postY = banner.y;
+            const postXLeft = banner.x - postWidth;
+            const postXRight = banner.x + banner.width;
+
+            // Left post
+            ctx.fillStyle = '#8B4513';
+            ctx.fillRect(postXLeft, postY, postWidth, postHeight);
+
+            // Right post
+            ctx.fillStyle = '#8B4513';
+            ctx.fillRect(postXRight, postY, postWidth, postHeight);
+
+            // Draw banner text
+            ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+            ctx.shadowBlur = 3;
+            ctx.shadowOffsetX = 1;
+            ctx.shadowOffsetY = 1;
+
+            // Scale text size based on banner width
+            const textSize = Math.min(banner.height * 0.6, banner.width * 0.15);
+            ctx.fillStyle = bannerTextColor;
+            ctx.font = `bold ${textSize}px Arial`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            const textX = banner.x + banner.width / 2;
+            const textY = banner.y + banner.height / 2;
+            ctx.fillText(banner.text, textX, textY);
+
+            // Reset shadow and restore context
+            ctx.shadowColor = 'transparent';
+            ctx.shadowBlur = 0;
+            ctx.shadowOffsetX = 0;
+            ctx.shadowOffsetY = 0;
+            ctx.restore();
+
+            return true; // Keep this banner
+        }
+        return false; // Remove this banner
+    });
 
     // Update car distance
     carDistance += speed;
@@ -193,4 +330,45 @@ function getLaneBounds(laneIndex, canvas, roadWidth, baseX, xOffset) {
 // vehicle.x = Math.max(laneLeft, Math.min(laneRight, vehicle.x));
 
 // export default drawRoad;
+
+/**
+ * Example of how to use drawRoad in a game loop for animation.
+ * This code should be placed in your main game script (not in this file).
+ *
+ * const canvas = document.getElementById('gameCanvas'); // Replace with your canvas ID
+ * const ctx = canvas.getContext('2d');
+ *
+ * let gameSpeed = 5; // Initial car speed
+ * // carDistance is managed inside drawRoad for this example, but you might manage it externally.
+ *
+ * function gameLoop() {
+ *     // Clear the canvas
+ *     ctx.clearRect(0, 0, canvas.width, canvas.height);
+ *
+ *     // Update game state (e.g., update car speed based on input)
+ *     // gameSpeed = ... logic to change speed ...
+ *
+ *     // Draw the road (this updates internal distance and draws segments/banners)
+ *     drawRoad(ctx, canvas, gameSpeed);
+ *
+ *     // Draw other game elements (vehicles, obstacles, etc.) - ENSURE THESE ARE DRAWN *BEFORE* THE BANNERS if you manage banner drawing externally
+ *     // drawVehicles(ctx, canvas, ...);
+ *     // drawObstacles(ctx, canvas, ...);
+ *
+ *     // If drawRoad collected banners to draw separately (as implemented in this file):
+ *     // Ensure banners are drawn AFTER vehicles/obstacles in your main loop.
+ *     // Access the bannersToDraw array from drawRoad (you might need to return it or make it accessible).
+ *     // bannersToDraw.forEach(banner => { ... draw banner ... }); // Implement drawing logic here if not in drawRoad
+ *
+ *     // Request the next frame
+ *     requestAnimationFrame(gameLoop);
+ * }
+ *
+ * // Start the game loop
+ * // gameLoop();
+ *
+ * // Note: The actual implementation depends on your game's overall structure.
+ * // If you are using the drawRoad function as is, the animation should work
+ * // IF gameLoop is repeatedly called, canvas is cleared, and gameSpeed is > 0.
+ */
 

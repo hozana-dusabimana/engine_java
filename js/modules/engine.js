@@ -15,8 +15,8 @@ const advertisementMessages = [
 ];
 
 // Advertisement banner dimensions (accessible by both update and draw functions)
-const advertisementBannerHeight = 80;
-const advertisementBannerWidth = 320 * 2.3; // Make banner wider than road width
+const advertisementBannerHeight = 20;
+const advertisementBannerWidth = 320; // Make banner wider than road width
 
 function handleInput(event) {
     const rect = canvas.getBoundingClientRect();
@@ -136,8 +136,14 @@ function drawAdvertisementBanners() {
     const baseX = canvas.width / 2;
     const segments = 100;
     const segmentHeight = canvas.height / segments;
-    // const poleTopWidth = 10; // Removed pole variable
-    // const poleBottomWidth = 80; // Removed pole variable
+    const poleTopWidth = 10;
+    const poleBottomWidth = 80;
+
+    // Save context state for banner drawing
+    ctx.save();
+
+    // Set global composite operation to ensure banners are drawn on top
+    ctx.globalCompositeOperation = 'source-over';
 
     advertisementBanners.forEach(banner => {
         // Calculate perspective scaling factor
@@ -152,18 +158,16 @@ function drawAdvertisementBanners() {
         const roadRightAtBannerY = roadCenterAtBannerY + (roadWidth / 2) * effectiveScaleFactor;
 
         // Calculate banner perspective width using constant width
-        const bannerPerspectiveWidth = advertisementBannerWidth; // Constant width
-        const bannerPerspectiveHeight = advertisementBannerHeight; // Constant height
+        const bannerPerspectiveWidth = advertisementBannerWidth;
+        const bannerPerspectiveHeight = advertisementBannerHeight;
 
         // Position banner centered on the road with perspective
-        const bannerPerspectiveX = roadCenterAtBannerY - bannerPerspectiveWidth / 2; // Centered on the road
+        const bannerPerspectiveX = roadCenterAtBannerY - bannerPerspectiveWidth / 2;
 
         const bannerBottomY = banner.y + bannerPerspectiveHeight;
 
-        // Removed pole drawing logic based on user image
-
-        // Draw banner rectangle
-        ctx.fillStyle = '#FFFF00';
+        // Draw banner rectangle with slight transparency
+        ctx.fillStyle = 'rgba(255, 255, 0, 0.95)';
         ctx.fillRect(bannerPerspectiveX, banner.y, bannerPerspectiveWidth, bannerPerspectiveHeight);
         ctx.strokeStyle = '#000';
         ctx.lineWidth = 3 * effectiveScaleFactor;
@@ -178,22 +182,22 @@ function drawAdvertisementBanners() {
 
         // Draw yellow pivots above the banner
         ctx.fillStyle = '#FFFF00';
-        // Pivot size is now constant
-        const pivotWidth = 90; // Constant base width
-        const pivotHeight = 45; // Constant base height
+        const pivotWidth = 90;
+        const pivotHeight = 45;
 
         // Left pivot above banner
-        const leftUpperPivotX = bannerPerspectiveX + bannerPerspectiveWidth * 0.25 - pivotWidth / 2; // Position relative to banner
+        const leftUpperPivotX = bannerPerspectiveX + bannerPerspectiveWidth * 0.25 - pivotWidth / 2;
         const leftUpperPivotY = banner.y - pivotHeight;
         ctx.fillRect(leftUpperPivotX, leftUpperPivotY, pivotWidth, pivotHeight);
 
         // Right pivot above banner
-        const rightUpperPivotX = bannerPerspectiveX + bannerPerspectiveWidth * 0.75 - pivotWidth / 2; // Position relative to banner
+        const rightUpperPivotX = bannerPerspectiveX + bannerPerspectiveWidth * 0.75 - pivotWidth / 2;
         const rightUpperPivotY = banner.y - pivotHeight;
         ctx.fillRect(rightUpperPivotX, rightUpperPivotY, pivotWidth, pivotHeight);
-
-        // Removed road edge pivot drawing logic
     });
+
+    // Restore context
+    ctx.restore();
 }
 
 let lastBannerDistance = -1; // To track when to spawn the next banner - initialized to -1
@@ -263,35 +267,6 @@ function updateGame() {
         sounds.victory();
         saveHighScore();
         return;
-    }
-
-    // Check to spawn new advertisement banner
-    if (Math.floor(distance / 500) > Math.floor(lastBannerDistance / 500)) {
-        const randomMessage = advertisementMessages[Math.floor(Math.random() * advertisementMessages.length)];
-
-        // Calculate horizon Y position
-        const segments = 100;
-        const segmentHeight = canvas.height / segments;
-        const roadTopY = canvas.height / 3; // Using user's value for road top
-        const horizonY = Math.max(0, roadTopY - 30);
-        const maxHorizonY = canvas.height / 3;
-        const horizonYPos = Math.min(maxHorizonY, horizonY);
-
-        // Calculate road center at horizon Y position
-        const roadWidth = 320;
-        const baseX = canvas.width / 2;
-        const i = (canvas.height - horizonYPos) / segmentHeight; // Approximate segment index for horizon
-        const roadXOffsetAtHorizon = curveOffset * 0.01 * i;
-        const roadCenterAtHorizon = baseX + roadXOffsetAtHorizon * Math.max(0.4, (horizonYPos + 100) / (canvas.height + 100)); // Use increased min scale factor
-
-        advertisementBanners.push({
-            message: randomMessage,
-            x: roadCenterAtHorizon, // Spawn centered on the road at the horizon
-            y: horizonYPos + 5, // Spawn just below the horizon
-            width: advertisementBannerWidth,
-            height: advertisementBannerHeight,
-        });
-        lastBannerDistance = distance; // Update the last banner distance
     }
 
     // Update and filter advertisement banners
@@ -1290,13 +1265,71 @@ function gameLoop() {
             updateGame();
             drawEnvironment();
             drawRoad(ctx, canvas, player.speed);
+
+            // Save context state before drawing objects
+            ctx.save();
+
+            // Calculate horizon position (needed for clipping)
+            const segments = 100;
+            const segmentHeight = canvas.height / segments;
+            const roadTopY = canvas.height / 3;
+            const horizonY = Math.max(0, roadTopY - 30);
+            const maxHorizonY = canvas.height / 3;
+            const horizonYPos = Math.min(maxHorizonY, horizonY);
+
+            // Create a clipping path that is the inverse of the banner shapes
+            ctx.beginPath();
+            // Add a large rectangle covering the entire canvas to the path (below the horizon line)
+            // This ensures we only clip within the game world area where objects are drawn
+            ctx.rect(0, horizonYPos, canvas.width, canvas.height - horizonYPos);
+
+            // For each active banner, add its rectangle to the same path
+            advertisementBanners.forEach(banner => {
+                const roadWidth = 320;
+                const baseX = canvas.width / 2;
+                // Calculate the perspective properties of the banner at its current y position
+                const i = (canvas.height - banner.y) / segmentHeight; // Approximate segment index
+
+                // Use the same perspective scaling logic as used in drawAdvertisementBanners
+                const scaleFactor = (banner.y + 100) / (canvas.height + 100);
+                const effectiveScaleFactor = Math.max(0.4, scaleFactor);
+
+                // Calculate road center at banner's y position (road curve offset without perspective scaling)
+                const roadXOffsetAtBannerY = curveOffset * 0.01 * i;
+                const roadCenterAtBannerY = baseX + roadXOffsetAtBannerY;
+
+                // Calculate banner dimensions and position with perspective scaling
+                const bannerPerspectiveWidth = advertisementBannerWidth * effectiveScaleFactor;
+                const bannerPerspectiveHeight = advertisementBannerHeight * effectiveScaleFactor;
+                const bannerPerspectiveX = roadCenterAtBannerY - bannerPerspectiveWidth / 2; // Center on road center line (unscaled for perspective)
+
+                // Add banner rectangle to the clipping path.
+                ctx.rect(
+                    bannerPerspectiveX,
+                    banner.y,
+                    bannerPerspectiveWidth,
+                    bannerPerspectiveHeight
+                );
+            });
+
+            // Apply clipping using the even-odd fill rule
+            // This will clip to the area outside the banner rectangles but inside the initial large rectangle
+            ctx.clip('evenodd');
+
+            // Draw objects that should be hidden behind banners (drawn *after* clipping)
+            // These will only appear in the areas not covered by the clipping path (i.e., not behind banners)
             drawSignposts();
             drawObstacles();
             drawAICars();
             drawPlayer();
             drawParticles();
+
+            // Restore context to remove clipping
+            ctx.restore();
+
+            // Draw banners last so they appear on top (drawn *after* restoring context)
+            drawAdvertisementBanners();
             drawHUD();
-            drawAdvertisementBanners(); // Draw advertisement banners
             break;
 
         case 'paused':
@@ -1377,3 +1410,36 @@ window.addEventListener('focus', () => {
         musicContext.resume();
     }
 });
+
+function initMusic() {
+    try {
+        if (!musicContext) {
+            musicContext = new AudioContext();
+            musicGain = musicContext.createGain();
+            musicGain.gain.value = 0.1;
+            musicGain.connect(musicContext.destination);
+        }
+    } catch (error) {
+        console.warn('Music initialization failed:', error);
+        musicEnabled = false; // Disable music if initialization fails
+    }
+}
+
+function playBackgroundMusic() {
+    try {
+        if (!musicContext || !musicEnabled) return;
+
+        if (musicOscillator) {
+            musicOscillator.stop();
+        }
+
+        musicOscillator = musicContext.createOscillator();
+        musicOscillator.frequency.setValueAtTime(220, musicContext.currentTime);
+        musicOscillator.type = 'sine';
+        musicOscillator.connect(musicGain);
+        musicOscillator.start();
+    } catch (error) {
+        console.warn('Background music playback failed:', error);
+        musicEnabled = false; // Disable music if playback fails
+    }
+}

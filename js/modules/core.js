@@ -11,17 +11,22 @@ resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
 
 const zzfx = (...t) => {
-    let e = new AudioContext();
-    let n = e.createBuffer(1, 44100 * (t[1] || .5), 44100);
-    let s = n.getChannelData(0);
-    for (let i = 0; i < s.length; i++) {
-        let a = i / 44100;
-        s[i] = Math.sin(2 * Math.PI * (t[0] || 440) * a) * Math.exp(-a * (t[2] || 1)) * (t[3] || 0.3);
+    try {
+        let e = new AudioContext();
+        let n = e.createBuffer(1, 44100 * (t[1] || .5), 44100);
+        let s = n.getChannelData(0);
+        for (let i = 0; i < s.length; i++) {
+            let a = i / 44100;
+            s[i] = Math.sin(2 * Math.PI * (t[0] || 440) * a) * Math.exp(-a * (t[2] || 1)) * (t[3] || 0.3);
+        }
+        let o = e.createBufferSource();
+        o.buffer = n;
+        o.connect(e.destination);
+        o.start();
+    } catch (error) {
+        console.warn('Audio playback failed:', error);
+        // Silently fail - don't break the game if audio fails
     }
-    let o = e.createBufferSource();
-    o.buffer = n;
-    o.connect(e.destination);
-    o.start();
 };
 
 
